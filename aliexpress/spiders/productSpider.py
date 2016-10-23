@@ -53,46 +53,23 @@ class ProductSpider(InitSpider):
             self.driver.switch_to.frame(validation_box)
             self.driver.find_element_by_id('has-login-submit').click()
 
-            self.driver.get(self.start_url)
-            products = self.driver.find_elements_by_class_name("list-item")
-            for product in products:
-                product_url = product.find_element_by_class_name("product").get_attribute("href")
-                product_name = product.find_element_by_class_name("product").text
-                product_id = product_url.split("/")[5].split("?")[0].replace(".html", "")
-                product_orders = int(product.find_element_by_css_selector("a.order-num-a em").text[8:].replace(")", ""))
-                self.products['iteration'] = self.products['iteration'] + 1
-                self.products[product_id] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'us_orders': 0}
-                for index in range((product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)):
-                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
+        self.driver.get(self.start_url)
+        products = self.driver.find_elements_by_class_name("list-item")
+        for product in products:
+            product_url = product.find_element_by_class_name("product").get_attribute("href")
+            product_name = product.find_element_by_class_name("product").text
+            product_id = product_url.split("/")[5].split("?")[0].replace(".html", "")
+            product_orders = product.find_element_by_css_selector("a.order-num-a em").text
+            if "s" in product_orders:
+                product_orders = int(product_orders[8:].replace(")", ''))
+            else:
+                product_orders = int(product_orders[7:].replace(")", ''))
+            self.products[product_id] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'us_orders': 0}
+            self.products['iteration'] = self.products['iteration'] + 1
+            for index in range((product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)):
+                yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
 
-            # product_urls = response.css("a.product::attr(href)").extract()
-            #
-            # for product_url in product_urls:
-            #     product_url = product_url[2:]
-            #     product_id = product_url.split("/")[3].split("?")[0].replace(".html", "")
-            #     actual_url = "https://" + product_url
-            #     yield Request(url=actual_url, callback=self.get_product_details, meta={'product_id': product_id, 'actual_url': actual_url})
 
-    # def get_product_details(self, response):
-    #     if "login" in response.url:
-    #         self.driver.get(response.url)
-    #         validation_box = self.driver.find_element_by_id('alibaba-login-box')
-    #         self.driver.switch_to.frame(validation_box)
-    #         self.driver.find_element_by_id('has-login-submit').click()
-    #         actual_url = response.meta['actual_url']
-    #         yield Request(url=actual_url, callback=self.get_product_details, meta={'product_id': response.meta['product_id'], 'actual_url': actual_url}, dont_filter=True)
-    #     else:
-    #         product_id = response.meta['product_id']
-    #         self.products[product_id] = {}
-    #         self.products['iteration'] = self.products['iteration'] + 1
-    #         self.products[product_id]['name'] = response.css("h1.product-name::text").extract_first()
-    #         self.products[product_id]['url'] = response.url
-    #         self.products[product_id]['orders'] = int(response.css("span.order-num::text").extract_first().replace('orders', '').strip())
-    #         orders = int(self.products[product_id]['orders'])
-    #         self.products[product_id]['us_orders'] = 0
-    #         for index in range((orders // 8) if (orders % 8 == 0) else (orders // 8 + 1)):
-    #             yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
-    #
     def get_us_order(self, response):
         product_id = response.meta['product_id']
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
@@ -100,5 +77,5 @@ class ProductSpider(InitSpider):
             for item in data['records']:
                 if(item['countryCode'] == 'us'):
                     self.products[product_id]['us_orders'] = self.products[product_id]['us_orders'] + 1
-        if self.products['iteration'] > 45:
+        if self.products['iteration'] == 48:
             self.log(self.products)
