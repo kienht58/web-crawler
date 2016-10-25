@@ -13,12 +13,14 @@ class ProductSpider(InitSpider):
     name = 'product'
     login_page = "https://login.aliexpress.com"
     buffer_url = "https://www.aliexpress.com/"
-    start_url = "https://www.aliexpress.com/category/200004720/office-electronics.html?spm=2114.20011208.2.1.AkTOEP&site=glo"
+    start_url = ""
     products = {}
 
     def __init__(self):
         InitSpider.__init__(self)
         self.products['iteration'] = 0
+        print "Insert url: "
+        self.start_url = raw_input()
         self.driver = webdriver.Chrome()
 
     def __del__(self):
@@ -66,7 +68,8 @@ class ProductSpider(InitSpider):
                 product_orders = int(product_orders[7:].replace(")", ''))
             self.products[product_id] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'us_orders': 0}
             self.products['iteration'] = self.products['iteration'] + 1
-            for index in range((product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)):
+            feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
+            for index in range(feedback_pages):
                 yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
 
 
