@@ -17,12 +17,22 @@ class ProductSpider(InitSpider):
     buffer_url = "https://www.aliexpress.com/"
     start_url = ""
     products = {}
+    country_code = ""
+    filename = ""
+    threshold = 0
 
     def __init__(self):
         InitSpider.__init__(self)
-        self.products['iteration'] = 0
-        print "Insert url: "
+        self.total = 0
+        print "Nhap url: "
         self.start_url = raw_input()
+        print "Nhap ma country code: "
+        self.country_code = raw_input()
+        print "Nhap ten file output: "
+        self.filename = raw_input()
+        self.filename = self.filename + ".xlsx"
+        print "Nhap nguong loai bo: "
+        self.threshold = float(raw_input())
         self.driver = webdriver.Chrome()
 
     def __del__(self):
@@ -62,27 +72,29 @@ class ProductSpider(InitSpider):
         url_parts = self.start_url.split("/")
         if(url_parts[3] == 'store'):
             products = self.driver.find_elements_by_class_name("detail")
-            for product in products:
-                product_url = product.find_element_by_tag_name("a").get_attribute("href")
-                product_name = product.find_element_by_tag_name("a").text
-                product_id = product_url.split("/")[6].replace(".html", "").split("_")[1]
-                try:
-                    product_orders = product.find_element_by_css_selector("span.recent-order").text
-                    if "s" in product_orders:
-                        product_orders = int(product_orders[7:].replace(")", ''))
-                    else:
-                        product_orders = int(product_orders[6:].replace(")", ''))
-                except NoSuchElementException:
-                    product_orders = 0
-                self.products[product_id] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'us_orders': 0}
-                self.products['iteration'] = self.products['iteration'] + 1
-                feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
-                for index in range(feedback_pages):
-                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
+            # self.total = len(products)
+            # for index, product in enumerate(products):
+            #     product_url = product.find_element_by_tag_name("a").get_attribute("href")
+            #     product_name = product.find_element_by_tag_name("a").text
+            #     product_id = product_url.split("/")[6].replace(".html", "").split("_")[1]
+            #     try:
+            #         product_orders = product.find_element_by_css_selector("span.recent-order").text
+            #         if "s" in product_orders:
+            #             product_orders = int(product_orders[7:].replace(")", ''))
+            #         else:
+            #             product_orders = int(product_orders[6:].replace(")", ''))
+            #     except NoSuchElementException:
+            #         product_orders = 0
+            #     self.products[index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, self.country_code: 0}
+            #     feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
+            #     for idx in range(feedback_pages):
+            #         yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(idx + 1), callback=self.get_us_order, meta={'product_id': product_id})
 
         else:
             products = self.driver.find_elements_by_class_name("list-item")
-            for product in products:
+            self.total = len(products)
+            self.log(self.total)
+            for index, product in enumerate(products):
                 product_url = product.find_element_by_class_name("product").get_attribute("href")
                 product_name = product.find_element_by_class_name("product").text
                 product_id = product_url.split("/")[5].split("?")[0].replace(".html", "")
@@ -91,19 +103,38 @@ class ProductSpider(InitSpider):
                     product_orders = int(product_orders[8:].replace(")", ''))
                 else:
                     product_orders = int(product_orders[7:].replace(")", ''))
-                self.products[product_id] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'us_orders': 0}
-                self.products['iteration'] = self.products['iteration'] + 1
+                self.products[index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, self.country_code: 0}
                 feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
-                for index in range(feedback_pages):
-                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(index + 1), callback=self.get_us_order, meta={'product_id': product_id})
-
+                for idx in range(feedback_pages):
+                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(idx + 1), callback=self.get_us_order, meta={'index': index, 'pages_left': feedback_pages - idx - 1})
 
     def get_us_order(self, response):
-        product_id = response.meta['product_id']
+        index = response.meta['index']
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if(data != ""):
             for item in data['records']:
-                if(item['countryCode'] == 'us'):
-                    self.products[product_id]['us_orders'] = self.products[product_id]['us_orders'] + 1
-        if self.products['iteration'] >= 40:
-            self.log(self.products)
+                if(item['countryCode'] == self.country_code):
+                    self.products[index + 1][self.country_code] = self.products[index + 1][self.country_code] + 1
+        if index == self.total - 1 and response.meta['pages_left'] == 0:
+            self.write_to_excel(self.products)
+
+    def write_to_excel(self, products):
+        workbook = xlsxwriter.Workbook(self.filename)
+        worksheet = workbook.add_worksheet()
+        worksheet.write(0, 0, "STT")
+        worksheet.write(0, 1, "Ten")
+        worksheet.write(0, 2, "Link")
+        worksheet.write(0, 3, "Tong so orders")
+        worksheet.write(0, 4, self.country_code)
+
+        row = 1
+        for (index, product) in products.items():
+            if product['orders'] > 0:
+                if (float(product[self.country_code])/product['orders']) * 100 >= self.threshold:
+                    worksheet.write(row, 0, index + 1)
+                    worksheet.write(row, 1, product['name'])
+                    worksheet.write_string(row, 2, product['url'])
+                    worksheet.write(row, 3, product['orders'])
+                    worksheet.write(row, 4, product[self.country_code])
+                    row += 1
+        workbook.close()
