@@ -95,6 +95,7 @@ class ProductSpider(InitSpider):
         else:
             products = self.driver.find_elements_by_class_name("list-item")
             self.total = len(products)
+            self.log(self.total)
             for index, product in enumerate(products):
                 product_url = product.find_element_by_class_name("product").get_attribute("href")
                 product_name = product.find_element_by_class_name("product").text
@@ -106,17 +107,19 @@ class ProductSpider(InitSpider):
                     product_orders = int(product_orders[7:].replace(")", ''))
                 self.products[index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, self.country_code: 0}
                 feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
+                if feedback_pages == 0:
+                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm", callback=self.get_us_order, meta={'index': index, 'pages_left': 0}, dont_filter=True)
                 for idx in range(feedback_pages):
                     yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product_id + "&type=default&page=" + str(idx + 1), callback=self.get_us_order, meta={'index': index, 'pages_left': feedback_pages - idx - 1})
-
     def get_us_order(self, response):
         index = response.meta['index']
+        self.log(index)
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if(data != ""):
             for item in data['records']:
                 if(item['countryCode'] == self.country_code):
                     self.products[index + 1][self.country_code] = self.products[index + 1][self.country_code] + 1
-        if index == self.total - 1 and response.meta['pages_left'] == 0:
+        if index >= self.total - 2 and response.meta['pages_left'] == 0:
             self.write_to_excel(self.products)
 
     def write_to_excel(self, products):
