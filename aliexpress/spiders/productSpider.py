@@ -171,16 +171,16 @@ class ProductSpider(InitSpider):
                 if product['orders'] > 0:
                     if self.selection == 1:
                         if (float(product[self.country_code])/product['orders']) * 100 >= self.threshold:
-                            worksheet.write(row, 1, product['name'])
-                            worksheet.write_string(row, 2, product['url'])
-                            worksheet.write(row, 3, product['orders'])
-                            worksheet.write(row, 4, product[self.country_code])
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product[self.country_code])
                             row += 1
                     else:
                         if product['orders in the last' + str(self.threshold) + 'days'] > 0:
-                            worksheet.write(row, 1, product['name'])
-                            worksheet.write_string(row, 2, product['url'])
-                            worksheet.write(row, 3, product['orders'])
-                            worksheet.write(row, 4, product['orders in the last' + str(self.threshold) + 'days'])
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product['orders in the last' + str(self.threshold) + 'days'])
                             row += 1
         workbook.close()
