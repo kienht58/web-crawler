@@ -148,7 +148,7 @@ class ProductSpider(InitSpider):
                         self.products[page - 1][product_index + 1][self.country_code] = self.products[page - 1][product_index + 1][self.country_code] + 1
                 else:
                     order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
-                    if datetime.now().date() - order_date > timedelta(days=self.threshold):
+                    if datetime.now().date() - order_date <= timedelta(days=self.threshold):
                         self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] = self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] + 1
         if response.meta['is_last_page'] and response.meta['product_left_in_page'] <= 1 and response.meta['feedback_pages_left'] == 0:
             self.write_to_excel(self.products)
