@@ -42,7 +42,7 @@ class ProductSpider(InitSpider):
         else:
             print "Nhap gioi han ngay: ",
             self.threshold = int(raw_input())
-        print "Nhap ten file output: ",
+        print "Nhap ten file outpu(excel): ",
         self.filename = raw_input() + ".xlsx"
         self.driver = webdriver.Chrome()
 
