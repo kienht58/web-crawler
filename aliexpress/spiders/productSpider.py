@@ -20,6 +20,8 @@ class ProductSpider(InitSpider):
     filename = ""
     threshold = 0
     selection = 0
+    sum_percentage = 0
+    sum_date = 0
 
     def __init__(self):
         InitSpider.__init__(self)
@@ -28,6 +30,7 @@ class ProductSpider(InitSpider):
         print "***********************************************"
         print "*1. Quet theo country code                    *"
         print "*2. Quet theo ngay                            *"
+        print "*3. Quet tong hop                             *"
         print "***********************************************"
         print "Nhap lua chon cua ban:",
         self.selection = input()
@@ -39,10 +42,17 @@ class ProductSpider(InitSpider):
             self.filename = self.filename + ".xlsx"
             print "Nhap gioi han: ",
             self.threshold = float(raw_input())
-        else:
+        elif self.selection == 2:
             print "Nhap gioi han ngay: ",
             self.threshold = int(raw_input())
-        print "Nhap ten file outpu(excel): ",
+        else:
+            print "Nhap ma country code: ",
+            self.country_code = raw_input()
+            print "Nhap gioi han: ",
+            self.sum_percentage = float(raw_input())
+            print "Nhap gioi han ngay: ",
+            self.sum_date = int(raw_input())
+        print "Nhap ten file output(excel): ",
         self.filename = raw_input() + ".xlsx"
         self.driver = webdriver.Chrome()
 
@@ -77,9 +87,10 @@ class ProductSpider(InitSpider):
 
                     if self.selection == 1:
                         self.products[page - 1][product_index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, self.country_code: 0}
-                    else:
+                    elif self.selection == 2:
                         self.products[page - 1][product_index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, 'orders in the last' + str(self.threshold) + 'days': 0}
-
+                    else:
+                        self.products[page - 1][product_index + 1] = {'name': product_name, 'url': product_url, 'orders': product_orders, self.country_code: 0, 'orders in the last' + str(self.sum_date) + 'days': 0}
                     feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
                     if feedback_pages == 0:
                         yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm",
@@ -146,10 +157,16 @@ class ProductSpider(InitSpider):
                 if self.selection == 1:
                     if(item['countryCode'] == self.country_code):
                         self.products[page - 1][product_index + 1][self.country_code] = self.products[page - 1][product_index + 1][self.country_code] + 1
-                else:
+                elif self.selection == 2:
                     order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                     if datetime.now().date() - order_date <= timedelta(days=self.threshold):
                         self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] = self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] + 1
+                else:
+                    if(item['countryCode'] == self.country_code):
+                        self.products[page - 1][product_index + 1][self.country_code] = self.products[page - 1][product_index + 1][self.country_code] + 1
+                    order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
+                    if datetime.now().date() - order_date <= timedelta(days=self.sum_date):
+                        self.products[page - 1][product_index + 1]['orders in the last' + str(self.sum_date) + 'days'] = self.products[page - 1][product_index + 1]['orders in the last' + str(self.sum_date) + 'days'] + 1
         if response.meta['is_last_page'] and response.meta['product_left_in_page'] <= 1 and response.meta['feedback_pages_left'] == 0:
             self.write_to_excel(self.products)
 
@@ -162,8 +179,11 @@ class ProductSpider(InitSpider):
         worksheet.write(0, 2, "Tong so orders")
         if self.selection == 1:
             worksheet.write(0, 3, self.country_code)
+        elif self.selection == 2:
+            worksheet.write(0, 3, str(self.threshold) + ' ngay')
         else:
-            worksheet.write(0, 3, 'So orders trong ' + str(self.threshold) + ' ngay gan day')
+            worksheet.write(0, 3, self.country_code)
+            worksheet.write(0, 4, str(self.sum_date) + ' ngay')
 
         row = 1
         for (page_index, page_details) in products.items():
@@ -176,11 +196,23 @@ class ProductSpider(InitSpider):
                             worksheet.write(row, 2, product['orders'])
                             worksheet.write(row, 3, product[self.country_code])
                             row += 1
-                    else:
+                    elif self.selection == 2:
                         if product['orders in the last' + str(self.threshold) + 'days'] > 0:
                             worksheet.write(row, 0, product['name'])
                             worksheet.write_string(row, 1, product['url'])
                             worksheet.write(row, 2, product['orders'])
                             worksheet.write(row, 3, product['orders in the last' + str(self.threshold) + 'days'])
+                            row += 1
+                    else:
+                        if float(product[self.country_code]/product['orders']) * 100 >= self.sum_percentage:
+                            self.log("aaa")
+                        if product['orders in the last' + str(self.sum_date) + 'days'] > 0:
+                            self.log("bbb")
+                        if (float(product[self.country_code])/product['orders']) * 100 >= self.sum_percentage and product['orders in the last' + str(self.sum_date) + 'days'] > 0:
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product[self.country_code])
+                            worksheet.write(row, 4, product['orders in the last' + str(self.sum_date) + 'days'])
                             row += 1
         workbook.close()
