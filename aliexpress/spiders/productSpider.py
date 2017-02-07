@@ -19,103 +19,107 @@ class ProductSpider(scrapy.Spider):
         self.userInput = kwargs.get('userInput')
 
     def start_requests(self):
-        for listIndex, product in enumerate(self.products[self.userInput['index']]):
-            self.products[self.userInput['index']][int(listIndex)][self.userInput['countryCode']] =  0
-            self.products[self.userInput['index']][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] = 0
-            productFeedbackPages = (product['orders'] // 8) if (product['orders'] % 8 == 0) else (product['orders'] // 8 + 1)
-            
-            if productFeedbackPages == 0:
-                yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm",
-                              callback=self.process_orders,
-                              meta={'product': product,
-                                    'listIndex': listIndex,
-                                    'remainingPage': 0},
-                              dont_filter=True)
-            else:
-                for index in range(productFeedbackPages):
-                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product['id'] + "&type=default&page=" + str(index + 1),
+        for idx, uidx in enumerate(self.userInput['index']):
+            for listIndex, product in enumerate(self.products[uidx]):
+                self.products[uidx][int(listIndex)][self.userInput['countryCode']] =  0
+                self.products[uidx][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] = 0
+                productFeedbackPages = (product['orders'] // 8) if (product['orders'] % 8 == 0) else (product['orders'] // 8 + 1)
+
+                if productFeedbackPages == 0:
+                    yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm",
                                   callback=self.process_orders,
-                                  meta={'product': product,
-                                        'listIndex': listIndex,
-                                        'remainingPage': productFeedbackPages - index - 1},
+                                  meta={'listIndex': listIndex,
+                                        'storeIndex': uidx,
+                                        'remainingPage': 0,
+                                        'remainingStore': len(self.userInput['index']) - idx - 1},
                                   dont_filter=True)
+                else:
+                    for index in range(productFeedbackPages):
+                        yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId=" + product['id'] + "&type=default&page=" + str(index + 1),
+                                      callback=self.process_orders,
+                                      meta={'listIndex': listIndex,
+                                            'storeIndex': uidx,
+                                            'remainingPage': productFeedbackPages - index - 1,
+                                            'remainingStore': len(self.userInput['index']) - idx - 1},
+                                      dont_filter=True)
 
     def process_orders(self, response):
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if len(data['records']):
-            product = response.meta['product']
             listIndex = response.meta['listIndex']
             remainingPage = response.meta['remainingPage']
+            remainingStore = response.meta['remainingStore']
+            storeIndex = response.meta['storeIndex']
 
             for item in data['records']:
                 if self.userInput['userSelection'] == 1:
                     if(item['countryCode'] == self.userInput['countryCode']):
-                        self.products[self.userInput['index']][int(listIndex)][self.userInput['countryCode']] += 1
-                
+                        self.products[storeIndex][int(listIndex)][self.userInput['countryCode']] += 1
+
                 elif self.userInput['userSelection'] == 2:
                     productOrderDate = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                     if datetime.now().date() - productOrderDate <= timedelta(days=self.userInput['dateThreshold']):
-                        self.products[self.userInput['index']][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] += 1      
-                
+                        self.products[storeIndex][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] += 1
+
                 else:
                     if(item['countryCode'] == self.userInput['countryCode']):
-                        self.products[self.userInput['index']][int(listIndex)][self.userInput['countryCode']] += 1
+                        self.products[storeIndex][int(listIndex)][self.userInput['countryCode']] += 1
                     productOrderDate = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                     if datetime.now().date() - productOrderDate <= timedelta(days=self.userInput['dateThreshold']):
-                        self.products[self.userInput['index']][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] += 1
+                        self.products[storeIndex][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] += 1
 
-            print "Index: " + str(listIndex) + " ||| len: " + str(len(self.products[self.userInput['index']]) - 1) + " ||| remain: " + str(remainingPage)
-            if len(self.products[self.userInput['index']]) - listIndex - 1 <= 3 and remainingPage == 0:
+            print "Index: " + str(listIndex) + " ||| len: " + str(len(self.products[storeIndex]) - 1) + " ||| remain: " + str(remainingPage)
+            if len(self.products[storeIndex]) - listIndex - 1 <= 3 and remainingPage == 0 and remainingStore == 0:
                 self.export_to_excel()
 
     def export_to_excel(self):
         try:
             os.remove(self.userInput['outputFilename'])
-            print "REMOVED!!!!!!!!!!!!!!"
         except OSError:
             pass
-        workbook = xlsxwriter.Workbook(self.userInput['outputFilename'])
+        workbook = xlsxwriter.Workbook(self.userInput['outputFilename'] + ".xlsx")
         worksheet = workbook.add_worksheet()
         worksheet.write(0, 0, "Ten")
         worksheet.write(0, 1, "Link")
         worksheet.write(0, 2, "Tong so orders")
-        
+
         row = 1
 
-        if self.userInput['userSelection'] == 1:
-            worksheet.write(0, 3, self.userInput['countryCode'])
-            for product in self.products[self.userInput['index']]:
-                if product['orders'] > 0:
-                    if (float(product[self.userInput['countryCode']])/product['orders']) * 100 >= self.userInput['percentThreshold']:
-                        worksheet.write(row, 0, product['name'])
-                        worksheet.write_string(row, 1, product['url'])
-                        worksheet.write(row, 2, product['orders'])
-                        worksheet.write(row, 3, product[self.userInput['countryCode']])
-                        row += 1
+        for storeIndex in self.userInput['index']:
+            if self.userInput['userSelection'] == 1:
+                worksheet.write(0, 3, self.userInput['countryCode'])
+                for product in self.products[storeIndex]:
+                    if product['orders'] > 0:
+                        if (float(product[self.userInput['countryCode']])/product['orders']) * 100 >= self.userInput['percentThreshold']:
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product[self.userInput['countryCode']])
+                            row += 1
 
-        elif self.userInput['userSelection'] == 2:
-            worksheet.write(0, 3, 'orders trong ' + str(self.userInput['dateThreshold']) + ' ngay')
-            for product in self.products[self.userInput['index']]:
-                if product['orders'] > 0:
-                    if product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] > 0:
-                        worksheet.write(row, 0, product['name'])
-                        worksheet.write_string(row, 1, product['url'])
-                        worksheet.write(row, 2, product['orders'])
-                        worksheet.write(row, 3, product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'])
-                        row += 1
+            elif self.userInput['userSelection'] == 2:
+                worksheet.write(0, 3, 'orders trong ' + str(self.userInput['dateThreshold']) + ' ngay')
+                for product in self.products[storeIndex]:
+                    if product['orders'] > 0:
+                        if product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] > 0:
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'])
+                            row += 1
 
-        else:
-            worksheet.write(0, 3, self.userInput['countryCode'])
-            worksheet.write(0, 4, 'orders trong ' + str(self.userInput['dateThreshold']) + ' ngay')
-            for product in self.products[self.userInput['index']]:
-                if product['orders'] > 0:
-                    if (float(product[self.userInput['countryCode']])/product['orders']) * 100 >= self.userInput['percentThreshold'] and product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] > 0:
-                        worksheet.write(row, 0, product['name'])
-                        worksheet.write_string(row, 1, product['url'])
-                        worksheet.write(row, 2, product['orders'])
-                        worksheet.write(row, 3, product[self.userInput['countryCode']])
-                        worksheet.write(row, 4, product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'])
-                        row += 1
+            else:
+                worksheet.write(0, 3, self.userInput['countryCode'])
+                worksheet.write(0, 4, 'orders trong ' + str(self.userInput['dateThreshold']) + ' ngay')
+                for product in self.products[storeIndex]:
+                    if product['orders'] > 0:
+                        if (float(product[self.userInput['countryCode']])/product['orders']) * 100 >= self.userInput['percentThreshold'] and product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] > 0:
+                            worksheet.write(row, 0, product['name'])
+                            worksheet.write_string(row, 1, product['url'])
+                            worksheet.write(row, 2, product['orders'])
+                            worksheet.write(row, 3, product[self.userInput['countryCode']])
+                            worksheet.write(row, 4, product['orders in the last' + str(self.userInput['dateThreshold']) + 'days'])
+                            row += 1
 
         workbook.close()
 
@@ -215,22 +219,22 @@ class ProductSpider(scrapy.Spider):
     #                     product_orders = 0
 
     #                 if self.selection == 1:
-    #                     self.products[page - 1][product_index + 1] = {'name': product_name, 
-    #                                                                   'url': product_url, 
-    #                                                                   'orders': product_orders, 
+    #                     self.products[page - 1][product_index + 1] = {'name': product_name,
+    #                                                                   'url': product_url,
+    #                                                                   'orders': product_orders,
     #                                                                   self.country_code: 0}
     #                 elif self.selection == 2:
-    #                     self.products[page - 1][product_index + 1] = {'name': product_name, 
-    #                                                                   'url': product_url, 
-    #                                                                   'orders': product_orders, 
+    #                     self.products[page - 1][product_index + 1] = {'name': product_name,
+    #                                                                   'url': product_url,
+    #                                                                   'orders': product_orders,
     #                                                                   'orders in the last' + str(self.threshold) + 'days': 0}
     #                 else:
-    #                     self.products[page - 1][product_index + 1] = {'name': product_name, 
-    #                                                                   'url': product_url, 
-    #                                                                   'orders': product_orders, 
-    #                                                                   self.country_code: 0, 
+    #                     self.products[page - 1][product_index + 1] = {'name': product_name,
+    #                                                                   'url': product_url,
+    #                                                                   'orders': product_orders,
+    #                                                                   self.country_code: 0,
     #                                                                   'orders in the last' + str(self.sum_date) + 'days': 0}
-                    
+
     #                 feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
     #                 if feedback_pages == 0:
     #                     yield Request(url="https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm",
@@ -266,14 +270,14 @@ class ProductSpider(scrapy.Spider):
     #                 product_orders = int(product_orders[7:].replace(")", ''))
 
     #             if self.selection == 1:
-    #                 self.products[1][index + 1] = {'name': product_name, 
-    #                                                'url': product_url, 
-    #                                                'orders': product_orders, 
+    #                 self.products[1][index + 1] = {'name': product_name,
+    #                                                'url': product_url,
+    #                                                'orders': product_orders,
     #                                                self.country_code: 0}
     #             else:
-    #                 self.products[1][index + 1] = {'name': product_name, 
-    #                                                'url': product_url, 
-    #                                                'orders': product_orders, 
+    #                 self.products[1][index + 1] = {'name': product_name,
+    #                                                'url': product_url,
+    #                                                'orders': product_orders,
     #                                                'orders in the last' + str(self.threshold) + 'days': 0}
 
     #             feedback_pages = (product_orders // 8) if (product_orders % 8 == 0) else (product_orders // 8 + 1)
@@ -303,19 +307,19 @@ class ProductSpider(scrapy.Spider):
     #             if self.selection == 1:
     #                 if(item['countryCode'] == self.country_code):
     #                     self.products[page - 1][product_index + 1][self.country_code] = self.products[page - 1][product_index + 1][self.country_code] + 1
-                
+
     #             elif self.selection == 2:
     #                 order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
     #                 if datetime.now().date() - order_date <= timedelta(days=self.threshold):
     #                     self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] = self.products[page - 1][product_index + 1]['orders in the last' + str(self.threshold) + 'days'] + 1
-                
+
     #             else:
     #                 if(item['countryCode'] == self.country_code):
     #                     self.products[page - 1][product_index + 1][self.country_code] = self.products[page - 1][product_index + 1][self.country_code] + 1
     #                 order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
     #                 if datetime.now().date() - order_date <= timedelta(days=self.sum_date):
     #                     self.products[page - 1][product_index + 1]['orders in the last' + str(self.sum_date) + 'days'] = self.products[page - 1][product_index + 1]['orders in the last' + str(self.sum_date) + 'days'] + 1
-        
+
     #     if response.meta['is_last_page'] and response.meta['product_left_in_page'] <= 1 and response.meta['feedback_pages_left'] == 0:
     #         self.write_to_excel(self.products)
 

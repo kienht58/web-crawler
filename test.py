@@ -6,14 +6,12 @@ import xlsxwriter
 
 userInput = {}
 requestList = []
-drivers = []
 userInput['userSelection'] = 0
 userInput['countryCode'] = ""
 userInput['outputFilename'] = ""
 userInput['percentThreshold'] = 0.0
 userInput['dateThreshold'] = 0
 userInput['pageRange'] = ()
-products = {}
 
 def initiate():
 	print "***********************************************"
@@ -30,13 +28,11 @@ def initiate():
 		with open(filePath) as f:
 			for line in f:
 				requestList.append(line.strip())
-				drivers.append(webdriver.Chrome())
 	else:
 		print "Nhap url:",
 		requestList.append(raw_input())
 		print "Nhap gioi han quet:"
 		userInput['pageRange'] = (int(raw_input()), int(raw_input()))
-		drivers.append(webdriver.Chrome())
 
 	clear = lambda: os.system('cls')
 	clear()
@@ -53,32 +49,26 @@ def initiate():
 
 	if userInput['userSelection'] == 1:
 		print "Nhap ma country code: ",
-		userInput['countryCode'] = raw_input()            
+		userInput['countryCode'] = raw_input()
 		print "Nhap gioi han: ",
 		userInput['percentThreshold'] = float(raw_input())
 
 	elif userInput['userSelection'] == 2:
 		print "Nhap gioi han ngay: ",
 		userInput['dateThreshold'] = int(raw_input())
-		
+
 	else:
 		print "Nhap ma country code: ",
-		userInput['countryCode'] = raw_input()           
+		userInput['countryCode'] = raw_input()
 		print "Nhap gioi han %: ",
-		userInput['percentThreshold'] = float(raw_input())        
+		userInput['percentThreshold'] = float(raw_input())
 		print "Nhap gioi han ngay: ",
 		userInput['dateThreshold'] = int(raw_input())
-		
-	print "Ten file output(excel): ",
-	userInput['outputFilename'] = raw_input() + ".xlsx"
 
-def open_browsers():
-	tasks = []
-	for (index,driver) in enumerate(drivers):
-		tasks.append(threading.Thread(target = process_page(driver, requestList[index], products, userInput)))
-	for task in tasks:
-		task.start()
+	print "Ten file output(excel): ",
+	userInput['outputFilename'] = raw_input()
 
 if __name__ == "__main__":
 	initiate()
-	open_browsers()
+	driver = webdriver.Chrome()
+	process_page(driver, requestList, userInput)
