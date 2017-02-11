@@ -45,12 +45,12 @@ class ProductSpider(scrapy.Spider):
 
     def process_orders(self, response):
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
-        if len(data['records']):
-            listIndex = response.meta['listIndex']
-            remainingPage = response.meta['remainingPage']
-            remainingStore = response.meta['remainingStore']
-            storeIndex = response.meta['storeIndex']
+        listIndex = response.meta['listIndex']
+        remainingPage = response.meta['remainingPage']
+        remainingStore = response.meta['remainingStore']
+        storeIndex = response.meta['storeIndex']
 
+        if len(data['records']):
             for item in data['records']:
                 if self.userInput['userSelection'] == 1:
                     if(item['countryCode'] == self.userInput['countryCode']):
@@ -68,9 +68,9 @@ class ProductSpider(scrapy.Spider):
                     if datetime.now().date() - productOrderDate <= timedelta(days=self.userInput['dateThreshold']):
                         self.products[storeIndex][int(listIndex)]['orders in the last' + str(self.userInput['dateThreshold']) + 'days'] += 1
 
-            print "Index: " + str(listIndex) + " ||| len: " + str(len(self.products[storeIndex]) - 1) + " ||| remain: " + str(remainingPage)
-            if len(self.products[storeIndex]) - listIndex - 1 <= 3 and remainingPage == 0 and remainingStore == 0:
-                self.export_to_excel()
+        print "Index: " + str(listIndex) + " ||| len: " + str(len(self.products[storeIndex]) - 1) + " ||| remain: " + str(remainingPage)
+        if len(self.products[storeIndex]) - listIndex - 1 <= 3 and remainingPage == 0 and remainingStore == 0:
+            self.export_to_excel()
 
     def export_to_excel(self):
         try:
