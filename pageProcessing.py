@@ -22,12 +22,7 @@ def process_page(driver, requestList, userInput):
 def filter_store_products(driver, urlParts, products, userInput):
 	storeId = urlParts[4].split("?")[0]
 	driver.get("https://www.aliexpress.com/store/" + storeId + "/search/1.html")
-	try:
-		storeTotalProducts = int(driver.find_element_by_css_selector("div#result-info strong").text.replace(",",""))
-	except NoSuchElementException:
-		print "Vui long xu ly dang nhap, sau do nhap \"c\" de tiep tuc"
-		raw_input()
-		storeTotalProducts = int(driver.find_element_by_css_selector("div#result-info strong").text.replace(",",""))
+	storeTotalProducts = int(driver.find_element_by_css_selector("div.result-info").text.split()[0].replace(",", ""))
 	storeName = driver.find_element_by_css_selector("span.shop-name a").text
 	storeTotalPages = (storeTotalProducts // 36) if (storeTotalProducts % 36 == 0) else (storeTotalProducts // 36 + 1)
 	uidx = storeName
@@ -35,12 +30,7 @@ def filter_store_products(driver, urlParts, products, userInput):
 	products[uidx] = []
 
 	for storePage in range(2, storeTotalPages + 1):
-		try:
-			perPageProducts = driver.find_elements_by_css_selector("ul.items-list.util-clearfix li.item div.detail")
-		except NoSuchElementException:
-			print "Vui long xu ly dang nhap, sau do nhap \"c\" de tiep tuc"
-			raw_input()
-			perPageProducts = driver.find_elements_by_css_selector("ul.items-list.util-clearfix li.item div.detail")
+		perPageProducts = driver.find_elements_by_css_selector("ul.items-list.util-clearfix li.item div.detail")
 
 		for product in perPageProducts:
 			productUrl = product.find_element_by_tag_name("a").get_attribute("href")
