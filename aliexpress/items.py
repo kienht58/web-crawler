@@ -13,3 +13,7 @@ class AliexpressItem(scrapy.Item):
     # name = scrapy.Field()
     product_name = scrapy.Field()
     product_url = scrapy.Field()
+    product_id = scrapy.Field()
+    orders = scrapy.Field()
+    pages = scrapy.Field()
+    us = scrapy.Field()
