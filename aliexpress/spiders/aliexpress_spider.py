@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import scrapy
+import os
 import json
 import re
+import logging
 import xlsxwriter
 from aliexpress.items import AliexpressItem
 from scrapy.http import Request
@@ -12,10 +14,26 @@ feedback_url = 'https://feedback.aliexpress.com/display/evaluationProductDetailA
 
 class AliExpressSpider(scrapy.Spider):
     name = 'aliexpress'
-    start_urls = ['https://www.aliexpress.com/wholesale?SearchText=shirt&g=y&page=40']
-    counter = 0
-    percent = 50
+    start_urls = []
     products = []
+    from_page = 0
+    limit = 0
+    counter = 0
+    filename=''
+
+
+    def __init__(self):
+        print "Link: ",
+        search_link = raw_input()
+        print "From page: ",
+        self.from_page = raw_input()
+        print "To page: ",
+        self.limit = int(raw_input())
+        search_link += '&page=' + self.from_page
+        search_link = search_link if 'g=y' in search_link else search_link + '&g=y'
+        self.start_urls.append(search_link)
+        print "File name: ",
+        self.filename = raw_input() + '.xlsx'
 
 
     def parse(self, response):
@@ -31,7 +49,7 @@ class AliExpressSpider(scrapy.Spider):
                 self.products.append(item)
 
         next_page = response.css('.ui-pagination-next::attr(href)').extract_first()
-        if next_page and self.counter < 2:
+        if next_page and self.counter < self.limit:
             self.counter = self.counter + 1
             url = protocol_prefix + next_page
             yield scrapy.Request(url, self.parse)
@@ -57,16 +75,19 @@ class AliExpressSpider(scrapy.Spider):
                 if item['countryCode'] == 'us':
                     self.products[index]['us'] = self.products[index]['us'] + 1 if self.products[index]['us'] else 1
 
-        if index == (len(self.products) - 1):
+        logging.info("product index: %s, pages left: %s", str(index), str(pages))
+
+        if index == 0:
+            logging.info("READY TO EXPORT")
             self.export_to_excel()
 
 
     def export_to_excel(self):
         try:
-            os.remove('test.xlsx')
+            os.remove(self.filename)
         except OSError:
             pass
-        workbook = xlsxwriter.Workbook("test.xlsx")
+        workbook = xlsxwriter.Workbook(self.filename)
         worksheet = workbook.add_worksheet()
         worksheet.write(0, 0, "Ten")
         worksheet.write(0, 1, "Link")
@@ -76,7 +97,7 @@ class AliExpressSpider(scrapy.Spider):
 
         for product in self.products:
             if product['orders'] >= 10:
-                if((product['us']/product['orders']) * 100 >= self.percent):
+                if((product['us']/product['orders']) * 100 >= 0):
                     worksheet.write(row, 0, product['product_name'])
                     worksheet.write_string(row, 1, product['product_url'])
                     worksheet.write(row, 2, product['orders'])
