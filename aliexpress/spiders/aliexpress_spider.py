@@ -19,7 +19,9 @@ class AliExpressSpider(scrapy.Spider):
     from_page = 0
     limit = 0
     counter = 0
-    filename=''
+    percent = 10
+    filename='',
+    buf=0
 
 
     def __init__(self):
@@ -32,6 +34,8 @@ class AliExpressSpider(scrapy.Spider):
         search_link += '&page=' + self.from_page
         search_link = search_link if 'g=y' in search_link else search_link + '&g=y'
         self.start_urls.append(search_link)
+        print "Percentage: ",
+        self.percent = int(raw_input())
         print "File name: ",
         self.filename = raw_input() + '.xlsx'
 
@@ -42,9 +46,13 @@ class AliExpressSpider(scrapy.Spider):
             if product.css('.info h3 a::text').extract_first():
                 item['product_name'] = product.css('.info h3 a::text').extract_first()
                 item['product_url'] = protocol_prefix + product.css('.info h3 a::attr(href)').extract_first()
-                item['product_id'] = item['product_url'].split('/')[5].split('.')[0]
+                try:
+                    item['product_id'] = item['product_url'].split('/')[5].split('.')[0]
+                except:
+                    print item['product_url']
                 item['orders'] = int(re.search('\((.+?)\)', product.css('.order-num a em::text').extract_first()).group(1))
-                item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1)
+                item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1) + 100
+                self.buf = self.buf + item['pages']
                 item['us'] = 0
                 self.products.append(item)
 
@@ -59,25 +67,22 @@ class AliExpressSpider(scrapy.Spider):
                     yield Request(url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
                       callback=self.process_orders,
                       meta={
-                        'product_idx': idx,
-                        'pages': product['pages'] - page - 1
+                        'product_idx': idx
                       },
                       dont_filter=True
                     )
 
 
     def process_orders(self, response):
+        self.buf = self.buf - 1
         index = response.meta['product_idx']
-        pages = response.meta['pages']
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if data:
             for item in data['records']:
                 if item['countryCode'] == 'us':
-                    self.products[index]['us'] = self.products[index]['us'] + 1 if self.products[index]['us'] else 1
+                    self.products[index]['us'] = self.products[index]['us'] + 1
 
-        logging.info("product index: %s, pages left: %s", str(index), str(pages))
-
-        if index == 0:
+        if self.buf == 0:
             logging.info("READY TO EXPORT")
             self.export_to_excel()
 
@@ -96,8 +101,8 @@ class AliExpressSpider(scrapy.Spider):
         row = 1
 
         for product in self.products:
-            if product['orders'] >= 10:
-                if((product['us']/product['orders']) * 100 >= 0):
+            if product['orders'] > 0:
+                if((product['us']/product['orders']) * 100 >= self.percent):
                     worksheet.write(row, 0, product['product_name'])
                     worksheet.write_string(row, 1, product['product_url'])
                     worksheet.write(row, 2, product['orders'])
