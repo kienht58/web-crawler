@@ -21,7 +21,7 @@ class AliExpressSpider(scrapy.Spider):
     products = []
     from_page = 0
     limit = 0
-    counter = 0
+    counter = 1
     percent = 10
     filename='',
     buf=0
@@ -57,6 +57,7 @@ class AliExpressSpider(scrapy.Spider):
                 item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1) # 1 feedback page has only 8 orders
                 self.buf = self.buf + item['pages']
                 item['us'] = 0
+                item['bak_orders'] = 0
                 self.products.append(item)
 
         next_page = response.css('.ui-pagination-next::attr(href)').extract_first()
@@ -85,47 +86,54 @@ class AliExpressSpider(scrapy.Spider):
         product = self.products[index]
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if data:
-            for item in data['records']:
-                if item:
-                    if item['countryCode'] == 'us':
-                        product['us'] = product['us'] + 1
-                    if page == product['pages']:
-                        yield Request(
-                            url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
-                            callback=self.process_additional_order,
-                            meta={
-                                'product_idx': index,
-                                'page': page + 1
-                            },
-                            dont_filter=True
-                        )
+            if len(data['records']):
+                product['bak_orders'] = product['bak_orders'] + len(data['records'])
+                for item in data['records']:
+                    if item:
+                        if item['countryCode'] == 'us':
+                            product['us'] = product['us'] + 1
+                if page == product['pages']:
+                    self.buf = self.buf + 1
+                    yield Request(
+                        url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
+                        callback=self.process_additional_orders,
+                        meta={
+                            'product_idx': index,
+                            'page': page + 1
+                        },
+                        dont_filter=True
+                    )
 
         if self.buf == 0:
             logging.info("READY TO EXPORT")
             self.export_to_excel()
 
 
-    def process_additional_order(self, response):
+    def process_additional_orders(self, response):
+        self.buf = self.buf - 1
         index = response.meta['product_idx']
         page = response.meta['page']
         product = self.products[index]
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
         if data:
             if len(data['records']):
-                product['orders'] = product['orders'] + 1
+                product['bak_orders'] = product['bak_orders'] + len(data['records'])
                 for item in data['records']:
                     if item:
                         if item['countryCode'] == 'us':
                             product['us'] = product['us'] + 1
-                        yield Request(
-                            url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
-                            callback=self.process_additional_order,
-                            meta={
-                                'product_idx': index,
-                                'page': page + 1
-                            },
-                            dont_filter=True
-                        )
+                yield Request(
+                    url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
+                    callback=self.process_additional_orders,
+                    meta={
+                        'product_idx': index,
+                        'page': page + 1
+                    },
+                    dont_filter=True
+                )
+        if self.buf == 0:
+            logging.info("READY TO EXPORT")
+            self.export_to_excel()
 
     def export_to_excel(self):
         try:
@@ -142,10 +150,10 @@ class AliExpressSpider(scrapy.Spider):
 
         for product in self.products:
             if product['orders'] > 0:
-                if ((float(product['us'])/product['orders']) * 100 >= self.percent):
+                if ((float(product['us'])/product['bak_orders']) * 100 >= self.percent):
                     worksheet.write(row, 0, product['product_name'])
                     worksheet.write_string(row, 1, product['product_url'])
-                    worksheet.write(row, 2, product['orders'])
+                    worksheet.write(row, 2, product['bak_orders'])
                     worksheet.write(row, 3, product['us'])
                     row += 1
 

@@ -17,3 +17,4 @@ class AliexpressItem(scrapy.Item):
     orders = scrapy.Field()
     pages = scrapy.Field()
     us = scrapy.Field()
+    bak_orders = scrapy.Field()
