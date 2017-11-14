@@ -99,7 +99,8 @@ class AliExpressSpider(scrapy.Spider):
                         callback=self.process_additional_orders,
                         meta={
                             'product_idx': index,
-                            'page': page + 1
+                            'page': page + 1,
+                            'prev_data': data
                         },
                         dont_filter=True
                     )
@@ -113,21 +114,24 @@ class AliExpressSpider(scrapy.Spider):
         self.buf = self.buf - 1
         index = response.meta['product_idx']
         page = response.meta['page']
+        prev_data = response.meta['prev_data']
         product = self.products[index]
         data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
-        if data:
+        if data and data != prev_data:
             if len(data['records']):
                 product['bak_orders'] = product['bak_orders'] + len(data['records'])
                 for item in data['records']:
                     if item:
                         if item['countryCode'] == 'us':
                             product['us'] = product['us'] + 1
+                self.buf = self.buf + 1
                 yield Request(
                     url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
                     callback=self.process_additional_orders,
                     meta={
                         'product_idx': index,
-                        'page': page + 1
+                        'page': page + 1,
+                        'prev_data': data
                     },
                     dont_filter=True
                 )
@@ -149,8 +153,8 @@ class AliExpressSpider(scrapy.Spider):
         row = 1
 
         for product in self.products:
-            if product['orders'] > 0:
-                if ((float(product['us'])/product['bak_orders']) * 100 >= self.percent):
+            if product['bak_orders'] > 0:
+                if ((float(product['us'])/product['bak_orders']) * 100) > self.percent:
                     worksheet.write(row, 0, product['product_name'])
                     worksheet.write_string(row, 1, product['product_url'])
                     worksheet.write(row, 2, product['bak_orders'])
