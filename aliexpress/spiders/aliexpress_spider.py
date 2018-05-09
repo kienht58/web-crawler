@@ -5,6 +5,7 @@ import json
 import re
 import logging
 import xlsxwriter
+from datetime import datetime, timedelta
 from aliexpress.items import AliexpressItem
 from scrapy.http import Request
 
@@ -53,7 +54,11 @@ class AliExpressSpider(scrapy.Spider):
                     item['product_id'] = item['product_url'].split('/')[5].split('.')[0]
                 except:
                     print item['product_url']
-                item['orders'] = int(re.search('\((.+?)\)', product.css('.order-num a em::text').extract_first()).group(1))
+                    print product.css('.order-num a em::text').extract_first()
+                try:    
+                    item['orders'] = int(re.search('\((.+?)\)', product.css('.order-num a em::text').extract_first()).group(1))
+                except:
+                    item['orders'] = 0
                 item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1) # 1 feedback page has only 8 orders
                 self.buf = self.buf + item['pages']
                 item['us'] = 0
@@ -90,8 +95,10 @@ class AliExpressSpider(scrapy.Spider):
                 product['bak_orders'] = product['bak_orders'] + len(data['records'])
                 for item in data['records']:
                     if item:
+                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                         if item['countryCode'] == 'us':
-                            product['us'] = product['us'] + 1
+                            if datetime.now().date() - order_date <= timedelta(days=5):
+                                product['us'] = product['us'] + 1
                 if page == product['pages']:
                     self.buf = self.buf + 1
                     yield Request(
@@ -122,8 +129,10 @@ class AliExpressSpider(scrapy.Spider):
                 product['bak_orders'] = product['bak_orders'] + len(data['records'])
                 for item in data['records']:
                     if item:
+                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                         if item['countryCode'] == 'us':
-                            product['us'] = product['us'] + 1
+                            if datetime.now().date() - order_date <= timedelta(days=5):
+                                product['us'] = product['us'] + 1
                 self.buf = self.buf + 1
                 yield Request(
                     url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
