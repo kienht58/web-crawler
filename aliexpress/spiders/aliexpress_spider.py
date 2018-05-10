@@ -55,13 +55,15 @@ class AliExpressSpider(scrapy.Spider):
                 except:
                     print item['product_url']
                     print product.css('.order-num a em::text').extract_first()
-                try:    
+                try:
                     item['orders'] = int(re.search('\((.+?)\)', product.css('.order-num a em::text').extract_first()).group(1))
                 except:
                     item['orders'] = 0
                 item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1) # 1 feedback page has only 8 orders
                 self.buf = self.buf + item['pages']
                 item['us'] = 0
+                item['orders5days'] = 0
+                item['us5days'] = 0
                 item['bak_orders'] = 0
                 self.products.append(item)
 
@@ -97,8 +99,11 @@ class AliExpressSpider(scrapy.Spider):
                     if item:
                         order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                         if item['countryCode'] == 'us':
-                            if datetime.now().date() - order_date <= timedelta(days=5):
-                                product['us'] = product['us'] + 1
+                            product['us'] = product['us'] + 1
+                        if datetime.now().date() - order_date <= timedelta(days=5):
+                            product['orders5days'] = product['orders5days'] + 1
+                        if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
+                            product['us5days'] = product['us5days'] + 1
                 if page == product['pages']:
                     self.buf = self.buf + 1
                     yield Request(
@@ -131,8 +136,11 @@ class AliExpressSpider(scrapy.Spider):
                     if item:
                         order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                         if item['countryCode'] == 'us':
-                            if datetime.now().date() - order_date <= timedelta(days=5):
-                                product['us'] = product['us'] + 1
+                            product['us'] = product['us'] + 1
+                        if datetime.now().date() - order_date <= timedelta(days=5):
+                            product['orders5days'] = product['orders5days'] + 1
+                        if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
+                            product['us5days'] = product['us5days'] + 1
                 self.buf = self.buf + 1
                 yield Request(
                     url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
@@ -158,7 +166,9 @@ class AliExpressSpider(scrapy.Spider):
         worksheet.write(0, 0, "Ten")
         worksheet.write(0, 1, "Link")
         worksheet.write(0, 2, "Tong so orders")
-        worksheet.write(0, 3, 'US')
+        worksheet.write(0, 3, "Tong so orders 5 ngay")
+        worksheet.write(0, 4, "US")
+        worksheet.write(0, 5, "US 5 ngay")
         row = 1
 
         for product in self.products:
@@ -167,7 +177,9 @@ class AliExpressSpider(scrapy.Spider):
                     worksheet.write(row, 0, product['product_name'])
                     worksheet.write_string(row, 1, product['product_url'])
                     worksheet.write(row, 2, product['bak_orders'])
-                    worksheet.write(row, 3, product['us'])
+                    worksheet.write(row, 3, product['orders5days'])
+                    worksheet.write(row, 4, product['us'])
+                    worksheet.write(row, 5, product['us5days'])
                     row += 1
 
         workbook.close()
