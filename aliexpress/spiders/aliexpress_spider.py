@@ -8,9 +8,11 @@ import xlsxwriter
 from datetime import datetime, timedelta
 from aliexpress.items import AliexpressItem
 from scrapy.http import Request
+from scrapy.exceptions import CloseSpider
 
 protocol_prefix = 'https:'
 feedback_url = 'https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId='
+MAXIMUM_FEEDBACK_PAGES = 10
 
 
 class AliExpressSpider(scrapy.Spider):
@@ -20,141 +22,116 @@ class AliExpressSpider(scrapy.Spider):
     name = 'aliexpress'
     start_urls = []
     products = []
-    from_page = 0
+    start = 0
     limit = 0
-    counter = 1
-    percent = 10
-    filename='',
-    buf=0
-
+    percent = 0
+    crawled = 0
+    remaining_pages = 0
+    filename = ''
 
     def __init__(self):
         print "Link: ",
         search_link = raw_input()
+
         print "From page: ",
-        self.from_page = raw_input()
+        self.start = int(raw_input())
+
         print "To page: ",
         self.limit = int(raw_input())
-        search_link += '&page=' + self.from_page
+
+        print "Percentage: ",
+        self.percent = int(raw_input())
+
+        print "Export file name: ",
+        self.filename = raw_input() + '.xlsx'
+
+        search_link += '&page=' + str(self.start)
         search_link = search_link if 'g=y' in search_link else search_link + '&g=y'
         self.start_urls.append(search_link)
-        print "Percentage: ",
-        self.percent = int(raw_input()) #type: int, from 0 to 100
-        print "File name: ",
-        self.filename = raw_input() + '.xlsx'
 
 
     def parse(self, response):
-        for product in response.css('.list-item'):
-            item = AliexpressItem()
-            if product.css('.info h3 a::text').extract_first():
-                item['product_name'] = product.css('.info h3 a::text').extract_first()
-                item['product_url'] = protocol_prefix + product.css('.info h3 a::attr(href)').extract_first()
+        try:
+            list_item = response.css('.list-item')
+            for item in list_item:
+                product = AliexpressItem()
                 try:
-                    item['product_id'] = item['product_url'].split('/')[5].split('.')[0]
-                except:
-                    print item['product_url']
-                    print product.css('.order-num a em::text').extract_first()
-                try:
-                    item['orders'] = int(re.search('\((.+?)\)', product.css('.order-num a em::text').extract_first()).group(1))
-                except:
-                    item['orders'] = 0
-                item['pages'] = (item['orders'] // 8) if (item['orders'] % 8 == 0) else (item['orders'] // 8 + 1) # 1 feedback page has only 8 orders
-                self.buf = self.buf + item['pages']
-                item['us'] = 0
-                item['orders5days'] = 0
-                item['us5days'] = 0
-                item['bak_orders'] = 0
-                self.products.append(item)
+                    product['name'] = item.css('.info h3 a::text').extract_first()
+                    product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
+                    product['id'] = product['url'].split('/')[5].split('.')[0]
+                    product['orders'] = int(re.search('\((.+?)\)', item.css('.order-num a em::text').extract_first()).group(1))
 
-        next_page = response.css('.ui-pagination-next::attr(href)').extract_first()
-        if next_page and self.counter < self.limit:
-            self.counter = self.counter + 1
-            url = protocol_prefix + next_page
-            yield scrapy.Request(url, self.parse)
-        else:
-            for idx, product in enumerate(self.products):
-                for page in range(product['pages']):
-                    yield Request(
-                        url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
-                        callback=self.process_orders,
-                        meta={
-                            'product_idx': idx,
-                            'page': page + 1
+                    pages = (product['orders'] // 8) if (product['orders'] % 8 == 0) else (product['orders'] // 8 + 1)
+                    product['pages'] = pages if pages < MAXIMUM_FEEDBACK_PAGES else MAXIMUM_FEEDBACK_PAGES
+                    self.remaining_pages = self.remaining_pages + product['pages']
+
+                    # initiate other properties
+                    product['orders_crawled'] = 0
+                    product['us_crawled'] = 0
+                    product['orders_in_5_days'] = 0
+                    product['us_in_5_days'] = 0
+
+                    self.products.append(product)
+                except:
+                    self.logger.info('Error while processing product %s', item)
+
+
+            next_page = response.css('.ui-pagination-next::attr(href)').extract_first()
+            if next_page is not None and self.start < self.limit:
+                self.start = self.start + 1
+                self.crawled = self.crawled + 1
+                url = protocol_prefix + next_page
+
+                yield scrapy.Request(url, self.parse)
+            else:
+                for index, product in enumerate(self.products):
+                    for page in range(product['pages']):
+                        yield Request(
+                            url=feedback_url + product['id'] + "&type=default&page=" + str(page + 1),
+                            callback=self.process_order,
+                            meta={
+                                'index': index,
+                                'page': page + 1,
+
                             },
-                        dont_filter=True
-                    )
+                            dont_filter=True
+                        )
+        except:
+            print response.css('.list-item')
+            if len(self.products):
+                self.export_to_excel()
+            raise CloseSpider('terminated')
 
 
-    def process_orders(self, response):
-        self.buf = self.buf - 1
-        index = response.meta['product_idx']
+    def process_order(self, response):
+        self.remaining_pages = self.remaining_pages - 1
+        index = response.meta['index']
         page = response.meta['page']
         product = self.products[index]
-        data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
-        if data:
-            if len(data['records']):
-                product['bak_orders'] = product['bak_orders'] + len(data['records'])
-                for item in data['records']:
-                    if item:
-                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
-                        if item['countryCode'] == 'us':
-                            product['us'] = product['us'] + 1
-                        if datetime.now().date() - order_date <= timedelta(days=5):
-                            product['orders5days'] = product['orders5days'] + 1
-                        if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
-                            product['us5days'] = product['us5days'] + 1
-                if page == product['pages']:
-                    self.buf = self.buf + 1
-                    yield Request(
-                        url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
-                        callback=self.process_additional_orders,
-                        meta={
-                            'product_idx': index,
-                            'page': page + 1,
-                            'prev_data': data
-                        },
-                        dont_filter=True
-                    )
 
-        if self.buf == 0:
-            logging.info("READY TO EXPORT")
+        try:
+            data = json.loads(response.body_as_unicode())
+        except:
+            data = None
+
+        if data is not None:
+            if data['records']:
+                for item in data['records']:
+                    product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
+
+                    if item['countryCode'] == 'us':
+                        product['us_crawled'] = product['us_crawled'] + 1 if product['us_crawled'] else 1
+
+                    order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
+                    if datetime.now().date() - order_date <= timedelta(days=5):
+                        product['orders_in_5_days'] = product['orders_in_5_days'] + 1 if product['orders_in_5_days'] else 1
+
+                    if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
+                        product['us_in_5_days'] = product['us_in_5_days'] + 1 if product['us_in_5_days'] else 1
+
+        if self.remaining_pages == 0:
             self.export_to_excel()
 
-
-    def process_additional_orders(self, response):
-        self.buf = self.buf - 1
-        index = response.meta['product_idx']
-        page = response.meta['page']
-        prev_data = response.meta['prev_data']
-        product = self.products[index]
-        data = json.loads(response.body_as_unicode()) if json.loads(response.body_as_unicode()) else ""
-        if data and data != prev_data:
-            if len(data['records']):
-                product['bak_orders'] = product['bak_orders'] + len(data['records'])
-                for item in data['records']:
-                    if item:
-                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
-                        if item['countryCode'] == 'us':
-                            product['us'] = product['us'] + 1
-                        if datetime.now().date() - order_date <= timedelta(days=5):
-                            product['orders5days'] = product['orders5days'] + 1
-                        if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
-                            product['us5days'] = product['us5days'] + 1
-                self.buf = self.buf + 1
-                yield Request(
-                    url=feedback_url + product['product_id'] + "&type=default&page=" + str(page + 1),
-                    callback=self.process_additional_orders,
-                    meta={
-                        'product_idx': index,
-                        'page': page + 1,
-                        'prev_data': data
-                    },
-                    dont_filter=True
-                )
-        if self.buf == 0:
-            logging.info("READY TO EXPORT")
-            self.export_to_excel()
 
     def export_to_excel(self):
         try:
@@ -165,21 +142,23 @@ class AliExpressSpider(scrapy.Spider):
         worksheet = workbook.add_worksheet()
         worksheet.write(0, 0, "Ten")
         worksheet.write(0, 1, "Link")
-        worksheet.write(0, 2, "Tong so orders")
-        worksheet.write(0, 3, "Tong so orders 5 ngay")
-        worksheet.write(0, 4, "US")
-        worksheet.write(0, 5, "US 5 ngay")
+        worksheet.write(0, 2, "Tong so order")
+        worksheet.write(0, 3, "So order toi da quet dc")
+        worksheet.write(0, 4, "So order US toi da quet duoc")
+        worksheet.write(0, 4, "Tong so order trong 5 ngay")
+        worksheet.write(0, 5, "So order US trong 5 ngay")
         row = 1
 
         for product in self.products:
-            if product['bak_orders'] > 0:
-                if ((float(product['us'])/product['bak_orders']) * 100) > self.percent:
-                    worksheet.write(row, 0, product['product_name'])
-                    worksheet.write_string(row, 1, product['product_url'])
-                    worksheet.write(row, 2, product['bak_orders'])
-                    worksheet.write(row, 3, product['orders5days'])
-                    worksheet.write(row, 4, product['us'])
-                    worksheet.write(row, 5, product['us5days'])
+            if product['orders'] > 0:
+                if ((float(product['us_crawled'])/product['orders']) * 100) > self.percent and product['orders_in_5_days'] > 0:
+                    worksheet.write(row, 0, product['name'])
+                    worksheet.write_string(row, 1, product['url'])
+                    worksheet.write(row, 2, product['orders'])
+                    worksheet.write(row, 3, product['orders_crawled'])
+                    worksheet.write(row, 4, product['us_crawled'])
+                    worksheet.write(row, 5, product['orders_in_5_days'])
+                    worksheet.write(row, 5, product['us_in_5_days'])
                     row += 1
 
         workbook.close()
