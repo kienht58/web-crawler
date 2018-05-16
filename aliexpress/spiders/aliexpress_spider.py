@@ -56,7 +56,7 @@ class AliExpressSpider(scrapy.Spider):
             for item in list_item:
                 product = AliexpressItem()
                 try:
-                    product['name'] = item.css('.info h3 a::text').extract_first()
+                    product['name'] = item.css('.info h3 a::attr(title)').extract_first()
                     product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
                     product['id'] = product['url'].split('/')[5].split('.')[0]
                     product['orders'] = int(re.search('\((.+?)\)', item.css('.order-num a em::text').extract_first()).group(1))
