@@ -24,7 +24,7 @@ class AliExpressSpider(scrapy.Spider):
     products = []
     start = 0
     limit = 0
-    percent = 0
+    maximum_us = 0
     crawled = 0
     remaining_pages = 0
     filename = ''
@@ -39,8 +39,8 @@ class AliExpressSpider(scrapy.Spider):
         print "To page: ",
         self.limit = int(raw_input())
 
-        print "Percentage: ",
-        self.percent = int(raw_input())
+        print "US 5 days: ",
+        self.maximum_us = int(raw_input())
 
         print "Export file name: ",
         self.filename = raw_input() + '.xlsx'
@@ -145,20 +145,20 @@ class AliExpressSpider(scrapy.Spider):
         worksheet.write(0, 2, "Tong so order")
         worksheet.write(0, 3, "So order toi da quet dc")
         worksheet.write(0, 4, "So order US toi da quet duoc")
-        worksheet.write(0, 4, "Tong so order trong 5 ngay")
-        worksheet.write(0, 5, "So order US trong 5 ngay")
+        worksheet.write(0, 5, "Tong so order trong 5 ngay")
+        worksheet.write(0, 6, "So order US trong 5 ngay")
         row = 1
 
         for product in self.products:
             if product['orders'] > 0:
-                if ((float(product['us_crawled'])/product['orders']) * 100) > self.percent and product['orders_in_5_days'] > 0:
+                if product['us_in_5_days'] >= self.maximum_us and product['orders_in_5_days'] > 0:
                     worksheet.write(row, 0, product['name'])
                     worksheet.write_string(row, 1, product['url'])
                     worksheet.write(row, 2, product['orders'])
                     worksheet.write(row, 3, product['orders_crawled'])
                     worksheet.write(row, 4, product['us_crawled'])
                     worksheet.write(row, 5, product['orders_in_5_days'])
-                    worksheet.write(row, 5, product['us_in_5_days'])
+                    worksheet.write(row, 6, product['us_in_5_days'])
                     row += 1
 
         workbook.close()
