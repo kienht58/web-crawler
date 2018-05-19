@@ -25,7 +25,7 @@ class AliExpressSpider(scrapy.Spider):
     start = 0
     limit = 0
     maximum_us = 0
-    crawled = 0
+    crawled = 1
     remaining_pages = 0
     filename = ''
 
@@ -53,7 +53,6 @@ class AliExpressSpider(scrapy.Spider):
     def parse(self, response):
         try:
             list_item = response.css('.list-item')
-            self.crawled = self.crawled + 1
             
             for item in list_item:
                 product = AliexpressItem()
