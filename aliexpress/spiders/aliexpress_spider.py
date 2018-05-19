@@ -53,6 +53,8 @@ class AliExpressSpider(scrapy.Spider):
     def parse(self, response):
         try:
             list_item = response.css('.list-item')
+            self.crawled = self.crawled + 1
+            
             for item in list_item:
                 product = AliexpressItem()
                 try:
@@ -140,14 +142,16 @@ class AliExpressSpider(scrapy.Spider):
             pass
         workbook = xlsxwriter.Workbook(self.filename)
         worksheet = workbook.add_worksheet()
-        worksheet.write(0, 0, "Ten")
-        worksheet.write(0, 1, "Link")
-        worksheet.write(0, 2, "Tong so order")
-        worksheet.write(0, 3, "So order toi da quet dc")
-        worksheet.write(0, 4, "So order US toi da quet duoc")
-        worksheet.write(0, 5, "Tong so order trong 5 ngay")
-        worksheet.write(0, 6, "So order US trong 5 ngay")
-        row = 1
+        worksheet.write(0, 0, "Tong so trang quet duoc")
+        worksheet.write(0, 1, self.crawled)
+        worksheet.write(2, 0, "Ten")
+        worksheet.write(2, 1, "Link")
+        worksheet.write(2, 2, "Tong so order")
+        worksheet.write(2, 3, "So order toi da quet dc")
+        worksheet.write(2, 4, "So order US toi da quet duoc")
+        worksheet.write(2, 5, "Tong so order trong 5 ngay")
+        worksheet.write(2, 6, "So order US trong 5 ngay")
+        row = 3
 
         for product in self.products:
             if product['orders'] > 0:
