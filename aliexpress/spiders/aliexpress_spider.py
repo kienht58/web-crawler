@@ -15,6 +15,7 @@ MAXIMUM_FEEDBACK_PAGES = 10
 FEEDBACK_PER_PAGE = 20
 DEFAULT_DATE_LIMIT = 5
 DROPSHIP_THRESHOLD = 10
+EXCLUDED_COUNTRIES = ['br', 'ru', 'mx']
 
 
 class AliExpressSpider(scrapy.Spider):
@@ -115,7 +116,6 @@ class AliExpressSpider(scrapy.Spider):
         self.remaining_pages = self.remaining_pages - 1
         index = response.meta['index']
         page = response.meta['page']
-        product = self.products[index]
 
         try:
             data = json.loads(response.body_as_unicode())
@@ -125,23 +125,25 @@ class AliExpressSpider(scrapy.Spider):
         if data is not None:
             if data['records']:
                 for item in data['records']:
-                    product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
+                    product = self.products[index]
+                    if item['countryCode'] not in EXCLUDED_COUNTRIES:
+                        product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
 
-                    order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
-                    if datetime.now().date() - order_date <= timedelta(days=5):
-                        product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
+                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
+                        if datetime.now().date() - order_date <= timedelta(days=5):
+                            product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
 
-                    seller_level = item['buyerAccountPointLeval']
-                    seller_name = item['name'] + seller_level
-                    if seller_name in product['sellers']:
-                        if product['sellers'][seller_name]['level'] == seller_level:
-                            product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
-                    else:
-                        product['sellers'][seller_name] = {
-                            'name': item['name'],
-                            'level': seller_level,
-                            'orders': 1
-                        }
+                        seller_level = item['buyerAccountPointLeval']
+                        seller_name = item['name'] + seller_level
+                        if seller_name in product['sellers']:
+                            if product['sellers'][seller_name]['level'] == seller_level:
+                                product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
+                        else:
+                            product['sellers'][seller_name] = {
+                                'name': item['name'],
+                                'level': seller_level,
+                                'orders': 1
+                            }
 
         if self.remaining_pages == 0:
             self.export_to_excel()
