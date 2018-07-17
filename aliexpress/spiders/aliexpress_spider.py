@@ -3,7 +3,6 @@ import scrapy
 import os
 import json
 import re
-import logging
 import xlsxwriter
 from datetime import datetime, timedelta
 from aliexpress.items import AliexpressItem
@@ -13,6 +12,9 @@ from scrapy.exceptions import CloseSpider
 protocol_prefix = 'https:'
 feedback_url = 'https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId='
 MAXIMUM_FEEDBACK_PAGES = 10
+FEEDBACK_PER_PAGE = 20
+DEFAULT_DATE_LIMIT = 5
+DROPSHIP_THRESHOLD = 10
 
 
 class AliExpressSpider(scrapy.Spider):
@@ -24,7 +26,7 @@ class AliExpressSpider(scrapy.Spider):
     products = []
     start = 0
     limit = 0
-    maximum_us = 0
+    minimum_orders = 0
     crawled = 1
     remaining_pages = 0
     filename = ''
@@ -33,14 +35,14 @@ class AliExpressSpider(scrapy.Spider):
         print "Link: ",
         search_link = raw_input()
 
-        print "From page: ",
+        print "Trang bắt đầu quét: ",
         self.start = int(raw_input())
 
-        print "To page: ",
+        print "Trang kết thúc: ",
         self.limit = int(raw_input())
 
-        print "US 5 days: ",
-        self.maximum_us = int(raw_input())
+        print "Số orders trong 5 ngày: ",
+        self.minimum_orders = int(raw_input())
 
         print "Export file name: ",
         self.filename = raw_input() + '.xlsx'
@@ -48,7 +50,6 @@ class AliExpressSpider(scrapy.Spider):
         search_link += '&page=' + str(self.start)
         search_link = search_link if 'g=y' in search_link else search_link + '&g=y'
         self.start_urls.append(search_link)
-
 
     def parse(self, response):
         try:
@@ -60,31 +61,38 @@ class AliExpressSpider(scrapy.Spider):
                     product['name'] = item.css('.info h3 a::attr(title)').extract_first()
                     product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
                     product['id'] = product['url'].split('/')[5].split('.')[0]
-                    product['orders'] = int(re.search('\((.+?)\)', item.css('.order-num a em::text').extract_first()).group(1))
+                    product['orders'] = int(
+                        re.search(
+                            '\((.+?)\)',
+                            item.css('.order-num a em::text').extract_first()
+                        ).group(1)
+                    )  # extract order from string with format (x)
 
-                    pages = (product['orders'] // 8) if (product['orders'] % 8 == 0) else (product['orders'] // 8 + 1)
+                    pages = (product['orders'] // FEEDBACK_PER_PAGE) if \
+                        (product['orders'] % FEEDBACK_PER_PAGE == 0) else \
+                        (product['orders'] // FEEDBACK_PER_PAGE + 1)
                     product['pages'] = pages if pages < MAXIMUM_FEEDBACK_PAGES else MAXIMUM_FEEDBACK_PAGES
                     self.remaining_pages = self.remaining_pages + product['pages']
 
                     # initiate other properties
                     product['orders_crawled'] = 0
-                    product['us_crawled'] = 0
-                    product['orders_in_5_days'] = 0
-                    product['us_in_5_days'] = 0
+                    product['orders_5_days'] = 0
+                    product['sellers'] = {}
 
                     self.products.append(product)
-                except:
+                except RuntimeError:
                     self.logger.info('Error while processing product %s', item)
-
 
             next_page = response.css('.ui-pagination-next::attr(href)').extract_first()
             if next_page is not None and self.start < self.limit:
+                # continue scraping through product pages
                 self.start = self.start + 1
                 self.crawled = self.crawled + 1
                 url = protocol_prefix + next_page
 
                 yield scrapy.Request(url, self.parse)
             else:
+                # crawl feedback from products
                 for index, product in enumerate(self.products):
                     for page in range(product['pages']):
                         yield Request(
@@ -97,12 +105,11 @@ class AliExpressSpider(scrapy.Spider):
                             },
                             dont_filter=True
                         )
-        except:
+        except RuntimeError:
             print response.css('.list-item')
             if len(self.products):
                 self.export_to_excel()
             raise CloseSpider('terminated')
-
 
     def process_order(self, response):
         self.remaining_pages = self.remaining_pages - 1
@@ -112,7 +119,7 @@ class AliExpressSpider(scrapy.Spider):
 
         try:
             data = json.loads(response.body_as_unicode())
-        except:
+        except SystemError:
             data = None
 
         if data is not None:
@@ -120,25 +127,29 @@ class AliExpressSpider(scrapy.Spider):
                 for item in data['records']:
                     product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
 
-                    if item['countryCode'] == 'us':
-                        product['us_crawled'] = product['us_crawled'] + 1 if product['us_crawled'] else 1
-
                     order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                     if datetime.now().date() - order_date <= timedelta(days=5):
-                        product['orders_in_5_days'] = product['orders_in_5_days'] + 1 if product['orders_in_5_days'] else 1
+                        product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
 
-                    if item['countryCode'] == 'us' and datetime.now().date() - order_date <= timedelta(days=5):
-                        product['us_in_5_days'] = product['us_in_5_days'] + 1 if product['us_in_5_days'] else 1
+                    seller_name = str(item['name'])
+                    if seller_name in product['sellers']:
+                        product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
+                    else:
+                        product['sellers'][seller_name] = {
+                            'name': seller_name,
+                            'level': item['buyerAccountPointLeval'],
+                            'orders': 1
+                        }
 
         if self.remaining_pages == 0:
             self.export_to_excel()
-
 
     def export_to_excel(self):
         try:
             os.remove(self.filename)
         except OSError:
             pass
+
         workbook = xlsxwriter.Workbook(self.filename)
         worksheet = workbook.add_worksheet()
         worksheet.write(0, 0, "Tong so trang quet duoc")
@@ -147,21 +158,50 @@ class AliExpressSpider(scrapy.Spider):
         worksheet.write(2, 1, "Link")
         worksheet.write(2, 2, "Tong so order")
         worksheet.write(2, 3, "So order toi da quet dc")
-        worksheet.write(2, 4, "So order US toi da quet duoc")
-        worksheet.write(2, 5, "Tong so order trong 5 ngay")
-        worksheet.write(2, 6, "So order US trong 5 ngay")
+        worksheet.write(2, 4, "Tong so order trong 5 ngay")
+        worksheet.write(2, 5, "Dropshippers")
         row = 3
 
         for product in self.products:
             if product['orders'] > 0:
-                if product['us_in_5_days'] >= self.maximum_us and product['orders_in_5_days'] > 0:
-                    worksheet.write(row, 0, product['name'])
-                    worksheet.write_string(row, 1, product['url'])
-                    worksheet.write(row, 2, product['orders'])
-                    worksheet.write(row, 3, product['orders_crawled'])
-                    worksheet.write(row, 4, product['us_crawled'])
-                    worksheet.write(row, 5, product['orders_in_5_days'])
-                    worksheet.write(row, 6, product['us_in_5_days'])
+                if product['orders_5_days'] > self.minimum_orders:
+                    dropshippers = has_dropship(product['sellers'])
+                    if dropshippers:
+                        worksheet.write(row, 0, product['name'])
+                        worksheet.write_string(row, 1, product['url'])
+                        worksheet.write(row, 2, product['orders'])
+                        worksheet.write(row, 3, product['orders_crawled'])
+                        worksheet.write(row, 4, product['orders_5_days'])
+                        worksheet.write(row, 5, group_dropship(dropshippers))
+
                     row += 1
 
         workbook.close()
+
+
+def has_dropship(sellers):
+    """
+    Check if product is being dropshipped
+    :param sellers:
+    :return:
+    """
+    dropshippers = []
+    for name, seller in sellers.iteritems():
+        if seller['orders'] >= DROPSHIP_THRESHOLD:
+            dropshippers.append(seller)
+
+    return dropshippers
+
+
+def group_dropship(sellers):
+    """
+    Return a string contains list of dropshippers
+    :param sellers:
+    :return:
+    """
+    result = ''
+
+    for seller in sellers:
+        info = 'Name: ' + seller['name'] + ', level: ' + seller['level'] + ', orders: ' + str(seller['orders']) + '\n'
+        result = result + info
+    return result
