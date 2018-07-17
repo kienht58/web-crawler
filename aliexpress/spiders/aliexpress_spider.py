@@ -165,14 +165,14 @@ class AliExpressSpider(scrapy.Spider):
         for product in self.products:
             if product['orders'] > 0:
                 if product['orders_5_days'] > self.minimum_orders:
-                    dropshippers = has_dropship(product['sellers'])
-                    if dropshippers:
+                    dropshipper = has_dropship(product['sellers'])
+                    if dropshipper:
                         worksheet.write(row, 0, product['name'])
                         worksheet.write_string(row, 1, product['url'])
                         worksheet.write(row, 2, product['orders'])
                         worksheet.write(row, 3, product['orders_crawled'])
                         worksheet.write(row, 4, product['orders_5_days'])
-                        worksheet.write(row, 5, group_dropship(dropshippers))
+                        worksheet.write(row, 5, group_dropship(dropshipper))
 
                     row += 1
 
@@ -185,23 +185,22 @@ def has_dropship(sellers):
     :param sellers:
     :return:
     """
-    dropshippers = []
+    dropshipper = ''
     for name, seller in sellers.iteritems():
         if seller['orders'] >= DROPSHIP_THRESHOLD:
-            dropshippers.append(seller)
+            if dropshipper:
+                if seller['orders'] > dropshipper['orders']:
+                    dropshipper = seller
+            else:
+                dropshipper = seller
 
-    return dropshippers
+    return dropshipper
 
 
-def group_dropship(sellers):
+def group_dropship(seller):
     """
-    Return a string contains list of dropshippers
-    :param sellers:
+
+    :param seller:
     :return:
     """
-    result = ''
-
-    for seller in sellers:
-        info = 'Name: ' + seller['name'] + ', level: ' + seller['level'] + ', orders: ' + str(seller['orders']) + '\n'
-        result = result + info
-    return result
+    return 'Name: ' + seller['name'] + ', level: ' + seller['level'] + ', orders: ' + str(seller['orders'])
