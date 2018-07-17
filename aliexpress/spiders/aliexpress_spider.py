@@ -35,13 +35,13 @@ class AliExpressSpider(scrapy.Spider):
         print "Link: ",
         search_link = raw_input()
 
-        print "Trang bắt đầu quét: ",
+        print "Trang bat dau quet: ",
         self.start = int(raw_input())
 
-        print "Trang kết thúc: ",
+        print "Trang ket thuc: ",
         self.limit = int(raw_input())
 
-        print "Số orders trong 5 ngày: ",
+        print "So order trong 5 ngay: ",
         self.minimum_orders = int(raw_input())
 
         print "Export file name: ",
@@ -131,13 +131,15 @@ class AliExpressSpider(scrapy.Spider):
                     if datetime.now().date() - order_date <= timedelta(days=5):
                         product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
 
-                    seller_name = str(item['name'])
+                    seller_level = item['buyerAccountPointLeval']
+                    seller_name = item['name'] + seller_level
                     if seller_name in product['sellers']:
-                        product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
+                        if product['sellers'][seller_name]['level'] == seller_level:
+                            product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
                     else:
                         product['sellers'][seller_name] = {
-                            'name': seller_name,
-                            'level': item['buyerAccountPointLeval'],
+                            'name': item['name'],
+                            'level': seller_level,
                             'orders': 1
                         }
 
