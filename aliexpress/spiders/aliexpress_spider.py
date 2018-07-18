@@ -62,12 +62,15 @@ class AliExpressSpider(scrapy.Spider):
                     product['name'] = item.css('.info h3 a::attr(title)').extract_first()
                     product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
                     product['id'] = product['url'].split('/')[5].split('.')[0]
-                    product['orders'] = int(
-                        re.search(
-                            '\((.+?)\)',
-                            item.css('.order-num a em::text').extract_first()
-                        ).group(1)
-                    )  # extract order from string with format (x)
+                    try:
+                        product['orders'] = int(
+                            re.search(
+                                '\((.+?)\)',
+                                item.css('.order-num a em::text').extract_first()
+                            ).group(1)
+                        )  # extract order from string with format (x)
+                    except:
+                        product['orders'] = 0
 
                     pages = (product['orders'] // FEEDBACK_PER_PAGE) if \
                         (product['orders'] % FEEDBACK_PER_PAGE == 0) else \
@@ -124,11 +127,17 @@ class AliExpressSpider(scrapy.Spider):
 
         if data is not None:
             if data['records']:
-                for item in data['records']:
-                    product = self.products[index]
-                    if item['countryCode'] not in EXCLUDED_COUNTRIES:
-                        product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
+                product = self.products[index]
+                if page == 1:
+                    records = data['records'][:16]
+                elif page == product['pages']:
+                    records = data['records'][8:] if len(data['records']) > 8 else []
+                else:
+                    records = data['records'][12:]
 
+                for item in records:
+                    product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
+                    if item['countryCode'] not in EXCLUDED_COUNTRIES:
                         order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
                         if datetime.now().date() - order_date <= timedelta(days=5):
                             product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
@@ -141,6 +150,7 @@ class AliExpressSpider(scrapy.Spider):
                         else:
                             product['sellers'][seller_name] = {
                                 'name': item['name'],
+                                'country': item['countryCode'],
                                 'level': seller_level,
                                 'orders': 1
                             }
@@ -163,7 +173,7 @@ class AliExpressSpider(scrapy.Spider):
         worksheet.write(2, 2, "Tong so order")
         worksheet.write(2, 3, "So order toi da quet dc")
         worksheet.write(2, 4, "Tong so order trong 5 ngay")
-        worksheet.write(2, 5, "Dropshippers")
+        worksheet.write(2, 5, "Dropshipper")
         row = 3
 
         for product in self.products:
@@ -207,4 +217,5 @@ def group_dropship(seller):
     :param seller:
     :return:
     """
-    return 'Name: ' + seller['name'] + ', level: ' + seller['level'] + ', orders: ' + str(seller['orders'])
+    return 'Name: ' + seller['name'] + ', country: ' + seller['country'] + \
+           ', level: ' + seller['level'] + ', orders: ' + str(seller['orders'])
