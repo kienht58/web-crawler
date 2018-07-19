@@ -128,12 +128,7 @@ class AliExpressSpider(scrapy.Spider):
         if data is not None:
             if data['records']:
                 product = self.products[index]
-                if page == 1:
-                    records = data['records'][:16]
-                elif page == product['pages']:
-                    records = data['records'][8:] if len(data['records']) > 8 else []
-                else:
-                    records = data['records'][12:]
+                records = data['records'][:8] if page != product['pages'] + 1 else data['records']
 
                 for item in records:
                     product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
