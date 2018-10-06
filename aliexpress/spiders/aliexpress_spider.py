@@ -13,9 +13,7 @@ protocol_prefix = 'https:'
 feedback_url = 'https://feedback.aliexpress.com/display/evaluationProductDetailAjaxService.htm?productId='
 MAXIMUM_FEEDBACK_PAGES = 10
 FEEDBACK_PER_PAGE = 20
-DEFAULT_DATE_LIMIT = 5
-DROPSHIP_THRESHOLD = 10
-EXCLUDED_COUNTRIES = ['br', 'ru', 'mx']
+DEFAULT_COUNTRY = 'us'
 
 
 class AliExpressSpider(scrapy.Spider):
@@ -59,31 +57,33 @@ class AliExpressSpider(scrapy.Spider):
             for item in list_item:
                 product = AliexpressItem()
                 try:
-                    product['name'] = item.css('.info h3 a::attr(title)').extract_first()
-                    product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
-                    product['id'] = product['url'].split('/')[5].split('.')[0]
-                    try:
-                        product['orders'] = int(
-                            re.search(
-                                '\((.+?)\)',
-                                item.css('.order-num a em::text').extract_first()
-                            ).group(1)
-                        )  # extract order from string with format (x)
-                    except:
-                        product['orders'] = 0
+                    if item.css('.info h3 a'):
+                        product['name'] = item.css('.info h3 a::attr(title)').extract_first()
+                        product['url'] = protocol_prefix + item.css('.info h3 a::attr(href)').extract_first()
+                        product['id'] = product['url'].split('/')[5].split('.')[0]
+                        try:
+                            product['orders'] = int(
+                                re.search(
+                                    '\((.+?)\)',
+                                    item.css('.order-num a em::text').extract_first()
+                                ).group(1)
+                            )  # extract order from string with format (x)
+                        except:
+                            product['orders'] = 0
 
-                    pages = (product['orders'] // FEEDBACK_PER_PAGE) if \
-                        (product['orders'] % FEEDBACK_PER_PAGE == 0) else \
-                        (product['orders'] // FEEDBACK_PER_PAGE + 1)
-                    product['pages'] = pages if pages < MAXIMUM_FEEDBACK_PAGES else MAXIMUM_FEEDBACK_PAGES
-                    self.remaining_pages = self.remaining_pages + product['pages']
+                        pages = (product['orders'] // FEEDBACK_PER_PAGE) if \
+                            (product['orders'] % FEEDBACK_PER_PAGE == 0) else \
+                            (product['orders'] // FEEDBACK_PER_PAGE + 1)
+                        product['pages'] = pages if pages < MAXIMUM_FEEDBACK_PAGES else MAXIMUM_FEEDBACK_PAGES
+                        self.remaining_pages = self.remaining_pages + product['pages']
 
-                    # initiate other properties
-                    product['orders_crawled'] = 0
-                    product['orders_5_days'] = 0
-                    product['sellers'] = {}
+                        # initiate other properties
+                        product['orders_crawled'] = 0
+                        product['orders_5_days'] = 0
+                        product['orders_us_5_days'] = 0
+                        product['sellers'] = {}
 
-                    self.products.append(product)
+                        self.products.append(product)
                 except RuntimeError:
                     self.logger.info('Error while processing product %s', item)
 
@@ -132,23 +132,11 @@ class AliExpressSpider(scrapy.Spider):
 
                 for item in records:
                     product['orders_crawled'] = product['orders_crawled'] + 1 if product['orders_crawled'] else 1
-                    if item['countryCode'] not in EXCLUDED_COUNTRIES:
-                        order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
-                        if datetime.now().date() - order_date <= timedelta(days=5):
-                            product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
-
-                        seller_level = item['buyerAccountPointLeval']
-                        seller_name = item['name'] + seller_level
-                        if seller_name in product['sellers']:
-                            if product['sellers'][seller_name]['level'] == seller_level:
-                                product['sellers'][seller_name]['orders'] = product['sellers'][seller_name]['orders'] + 1
-                        else:
-                            product['sellers'][seller_name] = {
-                                'name': item['name'],
-                                'country': item['countryCode'],
-                                'level': seller_level,
-                                'orders': 1
-                            }
+                    order_date = datetime.strptime(item['date'], '%d %b %Y %H:%M').date()
+                    if datetime.now().date() - order_date <= timedelta(days=5):
+                        product['orders_5_days'] = product['orders_5_days'] + 1 if product['orders_5_days'] else 1
+                        if item['countryCode'] == DEFAULT_COUNTRY:
+                            product['orders_us_5_days'] = product['orders_us_5_days'] + 1 if product['orders_us_5_days'] else 1
 
         if self.remaining_pages == 0:
             self.export_to_excel()
@@ -168,49 +156,19 @@ class AliExpressSpider(scrapy.Spider):
         worksheet.write(2, 2, "Tong so order")
         worksheet.write(2, 3, "So order toi da quet dc")
         worksheet.write(2, 4, "Tong so order trong 5 ngay")
-        worksheet.write(2, 5, "Dropshipper")
+        worksheet.write(2, 5, "Tong so order US trong 5 ngay")
         row = 3
 
         for product in self.products:
             if product['orders'] > 0:
                 if product['orders_5_days'] > self.minimum_orders:
-                    dropshipper = has_dropship(product['sellers'])
-                    if dropshipper:
-                        worksheet.write(row, 0, product['name'])
-                        worksheet.write_string(row, 1, product['url'])
-                        worksheet.write(row, 2, product['orders'])
-                        worksheet.write(row, 3, product['orders_crawled'])
-                        worksheet.write(row, 4, product['orders_5_days'])
-                        worksheet.write(row, 5, group_dropship(dropshipper))
+                    worksheet.write(row, 0, product['name'])
+                    worksheet.write_string(row, 1, product['url'])
+                    worksheet.write(row, 2, product['orders'])
+                    worksheet.write(row, 3, product['orders_crawled'])
+                    worksheet.write(row, 4, product['orders_5_days'])
+                    worksheet.write(row, 5, product['orders_us_5_days'])
 
                     row += 1
 
         workbook.close()
-
-
-def has_dropship(sellers):
-    """
-    Check if product is being dropshipped
-    :param sellers:
-    :return:
-    """
-    dropshipper = ''
-    for name, seller in sellers.iteritems():
-        if seller['orders'] >= DROPSHIP_THRESHOLD:
-            if dropshipper:
-                if seller['orders'] > dropshipper['orders']:
-                    dropshipper = seller
-            else:
-                dropshipper = seller
-
-    return dropshipper
-
-
-def group_dropship(seller):
-    """
-
-    :param seller:
-    :return:
-    """
-    return 'Name: ' + seller['name'] + ', country: ' + seller['country'] + \
-           ', level: ' + seller['level'] + ', orders: ' + str(seller['orders'])
